@@ -7,8 +7,8 @@ namespace Drupal\islandora\Plugin\Condition;
  *
  * @Condition(
  *   id = "parent_node_has_term",
- *   label = @Translation("Parent node for media has term"),
- *   context = {
+ *   label = @Translation("Parent node for media has term with URI"),
+ *   context_definitions = {
  *     "media" = @ContextDefinition("entity:media", required = TRUE , label = @Translation("media"))
  *   }
  * )

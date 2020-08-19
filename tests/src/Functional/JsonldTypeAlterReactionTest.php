@@ -8,7 +8,7 @@ namespace Drupal\Tests\islandora\Functional;
  * @package Drupal\Tests\islandora\Functional
  * @group islandora
  */
-class JsonldTypeAlterReactionTest extends MappingUriPredicateReactionTest {
+class JsonldTypeAlterReactionTest extends JsonldSelfReferenceReactionTest {
 
   /**
    * @covers \Drupal\islandora\Plugin\ContextReaction\JsonldTypeAlterReaction
@@ -70,10 +70,14 @@ class JsonldTypeAlterReactionTest extends MappingUriPredicateReactionTest {
     $this->assertSession()
       ->pageTextContains("The context $context_name has been saved");
 
-    $this->addCondition('test', 'entity_bundle');
-    $this->getSession()->getPage()->checkField("edit-conditions-entity-bundle-bundles-test-type");
-    $this->getSession()->getPage()->findById("edit-conditions-entity-bundle-context-mapping-node")->selectOption("@node.node_route_context:node");
+    $this->addCondition('test', 'islandora_entity_bundle');
+    $this->getSession()->getPage()->checkField("edit-conditions-islandora-entity-bundle-bundles-test-type");
+    $this->getSession()->getPage()->findById("edit-conditions-islandora-entity-bundle-context-mapping-node")->selectOption("@node.node_route_context:node");
     $this->getSession()->getPage()->pressButton(t('Save and continue'));
+
+    // The first time a Context is saved, you need to clear the cache.
+    // Subsequent changes to the context don't need a cache rebuild, though.
+    drupal_flush_all_caches();
 
     // Check for the new @type from the field_type_predicate value.
     $new_contents = $this->drupalGet($url . '?_format=jsonld');

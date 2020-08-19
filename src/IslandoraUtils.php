@@ -5,8 +5,8 @@ namespace Drupal\islandora;
 use Drupal\context\ContextManager;
 use Drupal\Core\Entity\ContentEntityInterface;
 use Drupal\Core\Entity\EntityInterface;
-use Drupal\Core\Entity\EntityFieldManager;
-use Drupal\Core\Entity\EntityTypeManager;
+use Drupal\Core\Entity\EntityFieldManagerInterface;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Entity\Query\QueryException;
 use Drupal\Core\Entity\Query\QueryFactory;
 use Drupal\Core\Entity\Query\QueryInterface;
@@ -35,14 +35,14 @@ class IslandoraUtils {
   /**
    * The entity type manager.
    *
-   * @var \Drupal\Core\Entity\EntityTypeManager
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
    */
   protected $entityTypeManager;
 
   /**
    * The entity field manager.
    *
-   * @var \Drupal\Core\Entity\EntityFieldManager
+   * @var \Drupal\Core\Entity\EntityFieldManagerInterface
    */
   protected $entityFieldManager;
 
@@ -77,9 +77,9 @@ class IslandoraUtils {
   /**
    * Constructor.
    *
-   * @param \Drupal\Core\Entity\EntityTypeManager $entity_type_manager
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    *   The entity type manager.
-   * @param \Drupal\Core\Entity\EntityFieldManager $entity_field_manager
+   * @param \Drupal\Core\Entity\EntityFieldManagerInterface $entity_field_manager
    *   The entity field manager.
    * @param \Drupal\Core\Entity\Query\QueryFactory $entity_query
    *   Entity query.
@@ -91,8 +91,8 @@ class IslandoraUtils {
    *   Language manager.
    */
   public function __construct(
-    EntityTypeManager $entity_type_manager,
-    EntityFieldManager $entity_field_manager,
+    EntityTypeManagerInterface $entity_type_manager,
+    EntityFieldManagerInterface $entity_field_manager,
     QueryFactory $entity_query,
     ContextManager $context_manager,
     FlysystemFactory $flysystem_factory,
@@ -235,12 +235,32 @@ class IslandoraUtils {
    *   Calling getStorage() throws if the storage handler couldn't be loaded.
    */
   public function getTermForUri($uri) {
-    $results = $this->entityQuery->get('taxonomy_term')
-      ->condition(self::EXTERNAL_URI_FIELD . '.uri', $uri)
+    // Get authority link fields to search.
+    $field_map = $this->entityFieldManager->getFieldMap();
+    $fields = [];
+    foreach ($field_map['taxonomy_term'] as $field_name => $field_data) {
+      if ($field_data['type'] == 'authority_link') {
+        $fields[] = $field_name;
+      }
+    }
+    // Add field_external_uri.
+    $fields[] = self::EXTERNAL_URI_FIELD;
+
+    $query = $this->entityQuery->get('taxonomy_term');
+
+    $orGroup = $query->orConditionGroup();
+    foreach ($fields as $field) {
+      $orGroup->condition("$field.uri", $uri);
+    }
+
+    $results = $query
+      ->condition($orGroup)
       ->execute();
+
     if (empty($results)) {
       return NULL;
     }
+
     return $this->entityTypeManager->getStorage('taxonomy_term')->load(reset($results));
   }
 
@@ -258,14 +278,37 @@ class IslandoraUtils {
    *   be created.
    */
   public function getUriForTerm(TermInterface $term) {
-    if ($term && $term->hasField(self::EXTERNAL_URI_FIELD)) {
-      $field = $term->get(self::EXTERNAL_URI_FIELD);
-      if (!$field->isEmpty()) {
-        $link = $field->first()->getValue();
-        return $link['uri'];
+    $fields = $this->getUriFieldNamesForTerms();
+    foreach ($fields as $field_name) {
+      if ($term && $term->hasField($field_name)) {
+        $field = $term->get($field_name);
+        if (!$field->isEmpty()) {
+          $link = $field->first()->getValue();
+          return $link['uri'];
+        }
       }
     }
     return NULL;
+  }
+
+  /**
+   * Gets every field name that might contain an external uri for a term.
+   *
+   * @return string[]
+   *   Field names for fields that a term may have as an external uri.
+   */
+  public function getUriFieldNamesForTerms() {
+    // Get authority link fields to search.
+    $field_map = $this->entityFieldManager->getFieldMap();
+    $fields = [];
+    foreach ($field_map['taxonomy_term'] as $field_name => $field_data) {
+      if ($field_data['type'] == 'authority_link') {
+        $fields[] = $field_name;
+      }
+    }
+    // Add field_external_uri.
+    $fields[] = self::EXTERNAL_URI_FIELD;
+    return $fields;
   }
 
   /**
@@ -520,15 +563,17 @@ class IslandoraUtils {
    *
    * @return string
    *   The entity URL.
+   *
+   * @throws \Drupal\Core\Entity\Exception\UndefinedLinkTemplateException
+   *   Thrown if the given entity does not specify a "canonical" template.
+   * @throws \Drupal\Core\Entity\EntityMalformedException
    */
   public function getEntityUrl(EntityInterface $entity) {
     $undefined = $this->languageManager->getLanguage('und');
-    $entity_type = $entity->getEntityTypeId();
-    return Url::fromRoute(
-      "entity.$entity_type.canonical",
-      [$entity_type => $entity->id()],
-      ['absolute' => TRUE, 'language' => $undefined]
-    )->toString();
+    return $entity->toUrl('canonical', [
+      'absolute' => TRUE,
+      'language' => $undefined,
+    ])->toString();
   }
 
   /**
